@@ -1,248 +1,311 @@
+
 # GitHub Activity Discord Bot
 
-A lightweight, private GitHub development tracking bot built with **TypeScript**, **Vercel Functions**, **Supabase PostgreSQL**, a **GitHub App**, and **Discord** webhooks/interactions.
+A private GitHub activity tracker that connects GitHub repositories to Discord. Built with TypeScript, Vercel Serverless Functions, Supabase PostgreSQL, and a GitHub App.
 
-It is designed to be modular, serverless-friendly, and low-cost: no VPS, no continuously running server, no Cloudflare infrastructure.
+It tracks development activity across authorized public and private repositories, sends updates to Discord in real time, and generates weekly development reports. The entire system runs serverlessly, without a VPS or a permanently running bot process.
+
+**Stack:** TypeScript · Vercel · Supabase · GitHub App · Discord
 
 ## Features
 
-- **Centralized GitHub App webhooks** for authorized public/private repositories across installations/org access.
-- **Automatic repository discovery**, including newly added repositories (via installation/repository events and a manual sync endpoint).
-- **Real-time Discord updates** for pushes/commits, pull request lifecycle events, releases, and important issue activity.
-- **Stored activity history** in Supabase for stats and weekly reporting.
-- **Duplicate protection** using GitHub delivery IDs plus external event identifiers where useful.
-- **HTTP-based Discord slash commands**: `/stats`, `/contributors`, `/repositories`, `/weekly`, `/repo`.
-- **Weekly report** via Vercel Cron with totals, repository activity, a GitHub-style contribution heatmap image, a configurable AI summary, per-repository "what happened" summaries, top contributors, and code stats (files changed, lines added/deleted).
+| Feature | Description |
+|---|---|
+| Repository Tracking | Monitor authorized repositories across GitHub installations and organizations. |
+| Automatic Discovery | Detect newly added repositories and synchronize repository access. |
+| Activity Notifications | Receive updates for commits, pushes, pull requests, releases, and issues. |
+| Activity History | Store development events in PostgreSQL for historical reporting. |
+| Slash Commands | Access repository and contributor statistics directly from Discord. |
+| Weekly Reports | Generate activity summaries, contribution heatmaps, and code statistics. |
+| AI Summaries | Generate repository-level and weekly summaries using configurable AI providers. |
+| Event Deduplication | Prevent duplicate notifications using GitHub delivery IDs and event identifiers. |
+
+## Discord Commands
+
+The bot uses Discord HTTP interactions rather than a continuously running Gateway connection.
+
+| Command | Purpose |
+|---|---|
+| `/stats` | View development activity statistics. |
+| `/contributors` | View contributor activity. |
+| `/repositories` | Browse tracked repositories. |
+| `/weekly` | View the weekly development report. |
+| `/repo` | View activity for a specific repository. |
+
+## Weekly Reports
+
+The weekly report is generated automatically and delivered to a dedicated Discord channel.
+
+Each report includes overall activity totals, repository-level summaries, top contributors, and code change statistics.
+
+It also includes a GitHub-style contribution heatmap and an optional AI-generated summary covering what happened across repositories during the reporting period.
+
+The default schedule is **Friday at 1:05 PM Bangladesh time (07:05 UTC)**.
+
+For exact-minute scheduling, the project also supports Supabase `pg_cron` and `pg_net`, avoiding the execution-window limitations of Vercel Hobby Cron.
 
 ## Architecture
 
-| Concern | Implementation |
-|---|---|
-| Runtime | Vercel serverless functions (`api/*`) |
-| Database | Supabase PostgreSQL (`supabase/migrations/0001_init.sql`) |
-| GitHub ingestion | `POST /api/github/webhook` (verified with webhook secret, deduped by delivery ID) |
-| Repository catalog | GitHub App installation API; refreshed on installation events and `POST /api/github/sync` |
-| Discord updates | Discord channel webhooks |
-| Discord commands | `POST /api/discord/interactions` (Ed25519 signature verification, no Gateway) |
-| Weekly report | `GET/POST /api/cron/weekly` (Vercel Cron, Friday 1:05 PM Bangladesh time / 07:05 UTC by default) |
-| AI summary | Stateless, configurable provider/model; receives structured JSON only |
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Application | TypeScript | Application logic and event processing |
+| Runtime | Vercel Functions | Serverless API endpoints |
+| Database | Supabase PostgreSQL | Activity records, repository data, and reports |
+| GitHub | GitHub App | Authentication, webhooks, and repository discovery |
+| Discord | Webhooks & Interactions | Notifications and slash commands |
+| Scheduling | Vercel Cron / Supabase pg_cron | Weekly report execution |
+| AI | Configurable providers | Activity summaries |
 
-## Project layout
+### API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/github/webhook` | Receive and process GitHub events |
+| POST | `/api/github/sync` | Synchronize accessible repositories |
+| POST | `/api/discord/interactions` | Handle Discord slash commands |
+| GET / POST | `/api/cron/weekly` | Generate and publish weekly reports |
+| GET | `/api/health` | Health check |
+
+GitHub webhook requests are verified using `X-Hub-Signature-256`. Discord interactions use Ed25519 signature verification.
+
+## Project Structure
 
 ```text
 api/
-  github/webhook.ts      # GitHub App webhook receiver
-  github/sync.ts         # Protected manual repository sync
-  discord/interactions.ts# HTTP slash command endpoint
-  cron/weekly.ts         # Weekly report generator
-  health.ts              # Health check
+├── github/
+│   ├── webhook.ts
+│   └── sync.ts
+├── discord/
+│   └── interactions.ts
+├── cron/
+│   └── weekly.ts
+└── health.ts
+
 lib/
-  ai.ts                  # Configurable AI summarizer (stateless)
-  dedup.ts               # Delivery/event dedup helpers
-  discord.ts             # Discord webhook + interaction verification
-  env.ts                 # Environment variable access/validation
-  format.ts              # Discord embed formatters
-  github.ts              # GitHub App auth and repository sync
-  github-events.ts       # GitHub event normalization/notification
-  heatmap.ts             # Contribution heatmap PNG renderer
-  stats.ts               # Supabase-backed activity queries
-  supabase.ts            # Supabase service client
+├── ai.ts
+├── dedup.ts
+├── discord.ts
+├── env.ts
+├── format.ts
+├── github.ts
+├── github-events.ts
+├── heatmap.ts
+├── stats.ts
+└── supabase.ts
+
 scripts/
-  register-discord-commands.ts
+└── register-discord-commands.ts
+
 supabase/
-  migrations/0001_init.sql
+└── migrations/
+    └── 0001_init.sql
 ```
 
-## Prerequisites
+## Getting Started
 
-- Node.js 20+
-- A Supabase project
-- A GitHub App installed on the target account/org with repository access
-- A Discord application/bot and two channel webhooks (updates + weekly)
-- A Vercel project (Hobby is sufficient for light usage)
-- An AI API key for weekly summaries (optional for real-time updates; weekly report will still post with a fallback message if AI is unavailable)
+### Requirements
 
-## Setup
+Node.js 20+, a Supabase project, a GitHub App with repository access, a Discord application, and a Vercel project.
 
-### 1. Install dependencies
+An AI API key is optional and only required for AI-generated summaries.
+
+### 1. Install
 
 ```bash
 npm install
 ```
 
-### 2. Configure Supabase
+### 2. Database
 
-1. Create a Supabase project.
-2. Open the SQL Editor and run [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql).
-3. Copy `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from Project Settings > API.
+Create a Supabase project and execute:
 
-The service role key is required for server-side inserts/queries in Vercel functions. Keep it secret and never expose it to browsers.
+`supabase/migrations/0001_init.sql`
 
-### 3. Create and configure the GitHub App
+Configure the following credentials:
 
-Create a GitHub App (personal account or organization) with:
+```env
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
 
-- **Webhook URL:** `https://<your-vercel-domain>/api/github/webhook`
-- **Webhook secret:** a strong random value (`GITHUB_WEBHOOK_SECRET`)
-- **Repository permissions** (minimum practical set):
-  - Contents: Read-only (commits/push metadata)
-  - Issues: Read-only
-  - Metadata: Read-only
-  - Pull requests: Read-only
-- **Subscribe to events:**
-  - Installation
-  - Installation repositories / Installation target (as available)
-  - Push
-  - Pull request
-  - Release
-  - Issues
-  - Repository (optional but helpful)
-  - Meta/Ping
+The service role key is used exclusively for server-side database operations. Never expose it to the browser.
 
-Install the app on the target account/organization and grant access to all repositories (recommended for automatic discovery) or selected repositories.
+### 3. GitHub App
 
-After creating the app, collect:
-- App ID (`GITHUB_APP_ID`)
-- Private key PEM (`GITHUB_APP_PRIVATE_KEY`)
-- Installation ID(s) if you want to pin scope (`GITHUB_INSTALLATION_IDS`, optional)
+Create a GitHub App and configure the webhook endpoint:
 
-### 4. Configure Discord
+```text
+https://<your-vercel-domain>/api/github/webhook
+```
 
-1. Create a Discord application in the Developer Portal.
-2. Copy `DISCORD_PUBLIC_KEY` and `DISCORD_APPLICATION_ID`.
-3. Create a bot for the application and copy `DISCORD_BOT_TOKEN` (used only for slash-command registration).
-4. Set the application's **Interactions Endpoint URL** to:
-   `https://<your-vercel-domain>/api/discord/interactions`
-5. Create two channel webhooks:
-   - Updates channel → `DISCORD_UPDATES_WEBHOOK_URL`
-   - Weekly reports channel → `DISCORD_WEEKLY_WEBHOOK_URL`
+Enable read-only access to Contents, Issues, Metadata, and Pull Requests.
+
+Subscribe to Installation, Installation repositories, Push, Pull request, Release, Issues, Repository, and Meta/Ping events.
+
+Configure the application credentials:
+
+```env
+GITHUB_APP_ID=
+GITHUB_APP_PRIVATE_KEY=
+GITHUB_WEBHOOK_SECRET=
+GITHUB_INSTALLATION_IDS=
+```
+
+`GITHUB_INSTALLATION_IDS` is optional and can be used to restrict processing to specific installations.
+
+### 4. Discord
+
+Create a Discord application through the [Developer Portal](https://discord.com/developers/applications).
+
+Set the Interactions Endpoint URL to:
+
+```text
+https://<your-vercel-domain>/api/discord/interactions
+```
+
+Create two channel webhooks, one for activity updates and another for weekly reports.
+
+Configure:
+
+```env
+DISCORD_PUBLIC_KEY=
+DISCORD_APPLICATION_ID=
+DISCORD_BOT_TOKEN=
+DISCORD_UPDATES_WEBHOOK_URL=
+DISCORD_WEEKLY_WEBHOOK_URL=
+```
 
 Register slash commands:
 
 ```bash
 cp .env.example .env.local
-# fill DISCORD_APPLICATION_ID and DISCORD_BOT_TOKEN
 npx tsx scripts/register-discord-commands.ts
 ```
 
-For faster testing, set `DISCORD_GUILD_ID` to register guild-scoped commands.
+Set `DISCORD_GUILD_ID` for faster guild-specific command registration during development.
 
-### 5. Configure AI (weekly summaries)
+### 5. AI Configuration
 
-The AI summarizer is stateless and receives structured JSON for each request. It never hardcodes project/org names and is instructed not to invent changes.
+The weekly reporting system supports three configurable providers.
 
-Supported configuration:
-- `AI_PROVIDER=openai-compatible` (default): calls `POST ${AI_BASE_URL}/chat/completions`
-- `AI_PROVIDER=anthropic-messages`: calls Anthropic Messages API
-- `AI_PROVIDER=cloudflare`: calls Cloudflare Workers AI `POST /client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{AI_MODEL}`
+| Provider | Configuration |
+|---|---|
+| OpenAI-compatible | `AI_PROVIDER=openai-compatible` |
+| Anthropic Messages | `AI_PROVIDER=anthropic-messages` |
+| Cloudflare Workers AI | `AI_PROVIDER=cloudflare` |
 
-Set `AI_API_KEY` and `AI_MODEL`. For Cloudflare, also set `CLOUDFLARE_ACCOUNT_ID` and use a Cloudflare API token with Workers AI access as `AI_API_KEY` (example model: `@cf/ibm-granite/granite-4.0-h-micro`). `AI_BASE_URL` is optional (defaults to Cloudflare's API base for the Cloudflare provider).
+Required configuration:
 
-### 6. Deploy to Vercel
-
-1. Push this repository to GitHub/GitLab/Bitbucket.
-2. Import into Vercel.
-3. Add all environment variables from `.env.example`.
-4. Set `CRON_SECRET` to a strong random value. Vercel Cron will send it as `Authorization: Bearer <CRON_SECRET>`.
-5. Deploy.
-
-The included [`vercel.json`](vercel.json) configures:
-- `/api/cron/weekly` every Friday at 1:05 PM Bangladesh time (`5 7 * * 5` UTC — Vercel cron always runs on UTC). Note: on the Hobby plan Vercel may invoke the job anywhere within that hour, so the report can land between 1:00 PM and 1:59 PM.
-- 60s max duration for API functions
-
-Adjust the cron schedule/timezone strategy as needed.
-
-### 6.1. Exact-minute scheduling with Supabase pg_cron (optional)
-
-On the Vercel **Hobby** plan, cron jobs may fire at any point within the scheduled hour, so the report can land anywhere
-between 1:00 PM and 1:59 PM. For exact-minute delivery, drive the schedule from Supabase's built-in `pg_cron` + `pg_net`,
-the same pattern FastHand Status uses. This requires `pg_cron` and `pg_net` extensions and `pg_cron`'s `net.http_post`
-to reach the deployment URL (Deployment Protection must be off — see section 6).
-
-1. In Supabase: **Database → Extensions → enable `pg_cron` and `pg_net`.**
-2. **Dashboard → Vault → add a secret** named `fastydiscord_cron_secret` whose value is your `CRON_SECRET`.
-3. Run the SQL in [`supabase/migrations/0003_weekly_report_pg_cron.sql`](supabase/migrations/0003_weekly_report_pg_cron.sql) in the SQL editor.
-   It registers a job named `fastydiscord-weekly-report` at `5 7 * * 5` (Friday 07:05 UTC = 13:05 Bangladesh time)
-   which POSTs to `https://fastydiscord.vercel.app/api/cron/weekly` with the Vault-stored secret.
-
-The handler is idempotent on `weekly_reports.week_start`, so keeping the Vercel Cron as a fallback is safe — the first
-run posts the report and the second is skipped. Once pg_cron is verified in `cron.job_run_details`, you may remove the
-entry from [`vercel.json`](vercel.json).
-
-```sql
-select jobid, jobname, command from cron.job where jobname = 'fastydiscord-weekly-report';
-select start_time, status, return_message from cron.job_run_details
-  where jobname = 'fastydiscord-weekly-report' order by start_time desc limit 5;
-select cron.unschedule('fastydiscord-weekly-report');
+```env
+AI_PROVIDER=
+AI_API_KEY=
+AI_MODEL=
+AI_BASE_URL=
+CLOUDFLARE_ACCOUNT_ID=
 ```
 
-### 7. Initial repository sync (recommended)
+`AI_BASE_URL` is optional. Cloudflare additionally requires `CLOUDFLARE_ACCOUNT_ID` and a Workers AI-enabled API token.
 
-After deployment, trigger a protected sync to populate the repository catalog:
+The summarizer receives structured activity data and is instructed not to invent repository changes. If AI is unavailable, weekly reports can still be published using a fallback message.
+
+### 6. Deployment
+
+Import the repository into Vercel, configure the environment variables from `.env.example`, and deploy.
+
+Set a strong `CRON_SECRET` to protect scheduled and manual maintenance endpoints.
+
+The included `vercel.json` configures weekly execution at `5 7 * * 5` (Friday, 07:05 UTC) and a maximum function duration of 60 seconds.
+
+**Initial repository synchronization**
+
+After deployment, populate the repository catalog:
 
 ```bash
 curl -X POST "https://<your-vercel-domain>/api/github/sync" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-Subsequent installation/repository events also refresh the catalog.
+Subsequent GitHub installation and repository events refresh the catalog automatically.
 
-## Environment variables
+## Database & Environment
 
-See [`.env.example`](.env.example) for the full list.
+The database schema is maintained through Supabase migrations. The initial migration is located at `supabase/migrations/0001_init.sql`.
+
+For the full environment configuration, refer to `.env.example`.
 
 | Variable | Required | Purpose |
-|---|---:|---|
-| `SUPABASE_URL` | yes | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-side Supabase access |
-| `GITHUB_APP_ID` | yes | GitHub App identifier |
-| `GITHUB_APP_PRIVATE_KEY` | yes | GitHub App PEM private key (`\n` escaped in env) |
-| `GITHUB_WEBHOOK_SECRET` | yes | Verifies GitHub webhook signatures |
-| `GITHUB_INSTALLATION_IDS` | no | Restrict processing to specific installations |
-| `DISCORD_PUBLIC_KEY` | yes | Verifies Discord interaction signatures |
-| `DISCORD_APPLICATION_ID` | yes | Discord application ID |
-| `DISCORD_BOT_TOKEN` | yes | Used by command registration script |
-| `DISCORD_UPDATES_WEBHOOK_URL` | yes | Real-time activity channel webhook |
-| `DISCORD_WEEKLY_WEBHOOK_URL` | yes | Weekly report channel webhook |
-| `DATABASE_URL` | no | Direct Postgres connection (Supabase pooler, port 6543). Enables SQL aggregation in the weekly report; falls back to PostgREST when unset. See `.env.example`. |
-| `AI_PROVIDER` | no | `openai-compatible`, `anthropic-messages`, or `cloudflare` |
-| `AI_API_KEY` | for AI | AI provider API key / Cloudflare API token |
-| `AI_BASE_URL` | no | AI API base URL |
-| `AI_MODEL` | no | AI model name (for Cloudflare, e.g. `@cf/ibm-granite/granite-4.0-h-micro`) |
-| `CLOUDFLARE_ACCOUNT_ID` | for Cloudflare AI | Cloudflare account ID used by Workers AI |
-| `CRON_SECRET` | recommended | Protects cron/manual endpoints |
+|---|---|---|
+| `SUPABASE_URL` | Yes | Database project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-side database access |
+| `GITHUB_APP_ID` | Yes | GitHub App authentication |
+| `GITHUB_APP_PRIVATE_KEY` | Yes | GitHub App private key |
+| `GITHUB_WEBHOOK_SECRET` | Yes | Webhook signature verification |
+| `GITHUB_INSTALLATION_IDS` | No | Installation restrictions |
+| `DISCORD_PUBLIC_KEY` | Yes | Interaction verification |
+| `DISCORD_APPLICATION_ID` | Yes | Discord application |
+| `DISCORD_BOT_TOKEN` | Yes | Command registration |
+| `DISCORD_UPDATES_WEBHOOK_URL` | Yes | Activity notifications |
+| `DISCORD_WEEKLY_WEBHOOK_URL` | Yes | Weekly reports |
+| `DATABASE_URL` | No | Direct PostgreSQL connection |
+| `AI_PROVIDER` | No | AI provider selection |
+| `AI_API_KEY` | AI enabled | Provider credentials |
+| `AI_BASE_URL` | No | Custom AI API endpoint |
+| `AI_MODEL` | No | Selected AI model |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare only | Workers AI account |
+| `CRON_SECRET` | Recommended | Endpoint protection |
 
-## Reliability notes
+`DATABASE_URL` enables direct SQL aggregation through the Supabase connection pooler (port 6543). When unavailable, the reporting system falls back to PostgREST.
 
-- **Duplicate deliveries:** GitHub `X-GitHub-Delivery` IDs are stored in `webhook_deliveries` and ignored on retries.
-- **Event-level dedup:** selected events also store `external_id` with a unique constraint.
-- **Missed events:** webhooks are the primary source; GitHub may retry failed deliveries. The `/api/github/sync` endpoint can repair repository catalog drift. For strict historical backfill, add a manual import job using GitHub App installation tokens (not included to keep the tool small).
-- **Signature verification:** GitHub webhooks require a valid `X-Hub-Signature-256`; Discord interactions require valid Ed25519 headers.
-- **Protected maintenance endpoints:** `/api/cron/weekly` and `/api/github/sync` require `CRON_SECRET` (Bearer token) when configured and are denied in production when missing.
-- **No hardcoded project identity:** AI summaries and embeds are generated from observed event payloads/database records.
+## Reliability & Security
 
-## Public repository security
+GitHub delivery IDs are stored in `webhook_deliveries` to prevent duplicate processing. Selected event types also use unique `external_id` constraints.
 
-This codebase can be public **if and only if** secrets remain outside git. See [`SECURITY.md`](SECURITY.md) and [`.env.example`](.env.example). Never commit `.env` files, keys, tokens, webhook secrets, Discord webhook URLs, or AI credentials. Configure secrets in Vercel/Supabase/provider dashboards and rotate immediately if exposed.
+Webhook signatures are verified before processing. Maintenance endpoints use Bearer authentication through `CRON_SECRET` and are denied in production when the secret is missing.
 
-## Local checks
+Repository synchronization can repair catalog inconsistencies, although historical event backfilling requires a separate import process.
+
+Keep all credentials outside the repository. Never commit `.env` files, private keys, GitHub tokens, Discord webhook URLs, or AI credentials. If exposed, rotate them immediately.
+
+See `SECURITY.md` for additional security information.
+
+## Development
+
+Run TypeScript checks:
 
 ```bash
 npm run typecheck
 ```
 
-Vercel-style local development:
+Start the local Vercel development environment:
 
 ```bash
-npm i -g vercel
+npm install -g vercel
 vercel dev
 ```
 
-For webhook testing locally, use a secure tunnel and point the GitHub App / Discord interactions endpoint to the tunnel URL.
+For webhook testing, expose the local server through a secure tunnel and configure the GitHub App and Discord interaction endpoints to use that URL.
 
-## Operational guidance
+## Scheduling Reference
 
-- Keep the GitHub App permissions read-only.
-- Use separate Discord channels/webhooks for updates and weekly summaries.
-- Monitor Vercel function logs for webhook signature failures, Supabase errors, or AI provider errors.
-- If activity volume grows, add SQL aggregation views/materialized summaries and tune query limits in `lib/stats.ts`.
+The optional Supabase scheduling migration is:
+
+`supabase/migrations/0003_weekly_report_pg_cron.sql`
+
+It uses `pg_cron` and `pg_net` to trigger the weekly report at an exact minute.
+
+The job name is `fastydiscord-weekly-report`, scheduled at `5 7 * * 5`.
+
+Store `CRON_SECRET` in Supabase Vault under `fastydiscord_cron_secret` before enabling the migration.
+
+The report handler is idempotent on `weekly_reports.week_start`, so Vercel Cron can remain as a fallback without producing duplicate reports.
+
+## Operational Notes
+
+GitHub App permissions should remain read-only. Activity updates and weekly reports should use separate Discord channels.
+
+Vercel function logs are the primary place to investigate webhook failures, database errors, and AI provider issues. For higher activity volumes, SQL aggregation views or materialized summaries can be introduced in `lib/stats.ts`.
+
+---
+
+**GitHub Activity Discord Bot**  
+TypeScript · Vercel · Supabase · GitHub · Discord
